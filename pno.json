@@ -1,0 +1,44 @@
+{
+  "property" : {
+    "type" : "Energy",
+    "wfn" : "$:pno"
+  },
+  "mp2":{
+    "type": "MP2",
+    "frozen_core" : true,
+    "atoms" : "$:water",
+    "wfn_world" : "$:wfn_world",
+    "ref" : "$:rhf",
+    "occ_block_size" : 1
+  },
+  "wfn_world":{
+    "type" : "WfnWorld",
+    "molecule" : "$:water",
+    "basis" : "$:basis"
+  },
+  "rhf":{
+    "type": "RHF",
+    "atoms" : "$:water",
+    "wfn_world" : "$:wfn_world"
+  },
+  "water": {
+    "atoms": [
+      { "element": "O", "xyz":[ 0.00000, -0.07579,  0.00000] },
+      { "element": "H", "xyz":[ 0.86681,  0.60144,  0.00000] },
+      { "element": "H", "xyz":[-0.86681,  0.60144,  0.00000] }
+    ]
+  },
+  "pno":{
+    "type" : "PNO",
+    "frozen_core" : true,
+    "atoms" : "$:water",
+    "wfn_world" : "$:wfn_world",
+    "ref" : "$:rhf",
+    "occ_block_size" : 1
+  },
+  "basis": {
+    "name": "6-31g",
+    "molecule": "$:water"
+  }
+}
+
