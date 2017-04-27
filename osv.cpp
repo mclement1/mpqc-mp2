@@ -63,6 +63,8 @@ class OSV : public LCAOWfn, public Provides<Energy> {
         double mp2_corr_energy = compute_mp2_energy(target_precision);
 
         energy_ = ref_energy->energy() + mp2_corr_energy;
+
+        int osv =  compute_osvs(target_precision, 1.0e-7);
     }
 
     // commit the result to energy
@@ -70,7 +72,7 @@ class OSV : public LCAOWfn, public Provides<Energy> {
   }
 
 
-    void compute_osvs(double target_precision, double threshold) {
+    int compute_osvs(double target_precision, double threshold) {
     //std::vector<Eigen::MatrixXd> make_D(double target_precision) {
 
       auto& fac = this->lcao_factory();
@@ -89,15 +91,16 @@ class OSV : public LCAOWfn, public Provides<Energy> {
       auto eps_v = eps_p.tail(nvir);
 
       // G_iajb
-      auto J = fac.compute(L"(i a|G|j b)");
+      auto G = fac.compute(L"(i a|G|j b)");
       const auto gtrange = G.trange();
 
       std::vector<Eigen::MatrixXd> G_vec(nocc_act);
 
       for (int i=0; i<nocc_act; ++i) {
-        std::array<int,4> idx = {{i,0,i,0}};
-        auto tile_ii = gtrange.element_to_tile(idx);
+        std::array<int,4> tile_ii = {{i,0,i,0}};
         auto ord_ii = gtrange.tiles_range().ordinal(tile_ii);
+        ExEnv::out0() << "[" << tile_ii[0] << "," << tile_ii[1]
+        << "," << tile_ii[2] << "," << tile_ii[3] << "] occurs at " << ord_ii <<std::endl;
         TA::TensorD G_ii = G.find(ord_ii);
         auto ext = G_ii.range().extent_data();
         Eigen::MatrixXd G_ii_mat = TA::eigen_map(G_ii, ext[0]*ext[1], ext[2]*ext[3]);
@@ -112,9 +115,9 @@ class OSV : public LCAOWfn, public Provides<Energy> {
         double eps_i = eps_o[i];
         double eps_ii = 0.0;
         for (int a=0; a<nvir; ++a) {
-          eps_a = eps_v[a];
+          double eps_a = eps_v[a];
           for (int b=0; b<nvir; ++b) {
-            eps_b = eps_v[b];
+            double eps_b = eps_v[b];
             eps_ii += (G_ii(a,b)*(2*G_ii(a,b) - G_ii(b,a)))/(2*eps_i - eps_a - eps_b);
           }
         }
@@ -129,15 +132,14 @@ class OSV : public LCAOWfn, public Provides<Energy> {
       std::vector<Eigen::MatrixXd> K_vec(nocc_act); 
 
       for (int i=0; i<nocc_act; ++i) {
-        std::array<int,4> idx = {{0,i,0,i}};
-        auto tile_ii = ktrange.element_to_tile(idx);
+        std::array<int,4> tile_ii = {{0,i,0,i}};
         auto ord_ii = ktrange.tiles_range().ordinal(tile_ii);
+        ExEnv::out0() << "[" << tile_ii[0] << "," << tile_ii[1]
+        << "," << tile_ii[2] << "," << tile_ii[3] << "] occurs at " << ord_ii <<std::endl;
         TA::TensorD K_ii = K.find(ord_ii);
         auto ext = K_ii.range().extent_data();
         Eigen::MatrixXd K_ii_mat = TA::eigen_map(K_ii, ext[0]*ext[1], ext[2]*ext[3]);
         K_vec[i] = K_ii_mat;
-        //ExEnv::out0() << "Hello, World!" << std::endl;
-        //ExEnv::out0() << "T^" << i << "," << j << ":\n" << T_ij_mat << std::endl;
       }
 
       std::vector<Eigen::MatrixXd> T_vec(nocc_act);
@@ -157,28 +159,44 @@ class OSV : public LCAOWfn, public Provides<Energy> {
         T_vec[i] = T_ii;
       }
 
-      Eigen::SelfAdjointEigenSolver<MatrixXd> es;
+      Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> es;
       std::vector<Eigen::MatrixXd> osv_vec(nocc_act);
-      std::std::vector<Eigen::VectorXd> occ_vec(nocc_act);
+      std::vector<Eigen::VectorXd> occ_vec(nocc_act);
 
       for (int i=0; i<nocc_act; ++i) {
         double eps_ii = diag_eps[i];
         Eigen::MatrixXd T_ii = T_vec[i];
+        Eigen::MatrixXd K_ii = K_vec[i];
         es.compute(T_ii);
         Eigen::VectorXd occ = es.eigenvalues();
         Eigen::MatrixXd osvs = es.eigenvectors();
-        double sum = 0.0;
-        double diff = std::abs(eps_ii - sum);
-        while (diff > threshold) {
-          
+        Eigen::VectorXd occ_keep(nvir);
+        Eigen::MatrixXd osvs_keep(nvir,nvir);
+        double osv_eps = 0.0;
+        double diff = 1.0;
+        //double diff = std::abs(eps_ii - sum);
+        int r=0;
+        while (diff > threshold && r != nvir) {
+          double kr = 0.0;
+          for (int a=0; a<nvir; ++a) {
+            for (int b=0; b<nvir; ++b) {
+              kr += osvs(a,r)*K_ii(a,b)*osvs(b,r);
+            }
+          }
+          osv_eps += occ[r]*kr;
+          occ_keep[r] = occ[r];
+          osvs_keep.col(r) = osvs.col(r);
 
-
-          
+          r += 1;
+          diff = std::abs(eps_ii - osv_eps);
         }
-
-
+        occ_vec[i] = occ_keep;
+        osv_vec[i] = osvs_keep;
+        ExEnv::out0() << "For i = " << i << " we require " << r << " OSVs to come within "
+        << threshold << " of the MP2 pair energy, which is " << eps_ii << std::endl;
       }
-
+      return 0;
+    }
 
 
 
