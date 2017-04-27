@@ -63,13 +63,17 @@ class PNO : public LCAOWfn, public Provides<Energy> {
         double mp2_corr_energy = compute_mp2_energy(target_precision);
 
         energy_ = ref_energy->energy() + mp2_corr_energy;
+
+        double threshold = 1.0e-7;
+
+        int pno = compute_pnos(target_precision, threshold);
     }
 
     // commit the result to energy
     this->set_value(energy, energy_);
   }
 
-    void compute_pnos(double target_precision, double threshold) {
+    int compute_pnos(double target_precision, double threshold) {
     //std::vector<Eigen::MatrixXd> make_D(double target_precision) {
 
       auto& fac = this->lcao_factory();
@@ -95,15 +99,14 @@ class PNO : public LCAOWfn, public Provides<Energy> {
 
       for (int i=0; i<nocc_act; ++i) {
         for (int j=0; j<nocc_act; ++j) {
-          std::array<int,4> idx = {{0,i,0,j}};
-          auto tile_ij = ktrange.element_to_tile(idx);
+          std::array<int,4> tile_ij = {{0,i,0,j}};
           auto ord_ij = ktrange.tiles_range().ordinal(tile_ij);
+          ExEnv::out0() << "[" << tile_ij[0] << "," << tile_ij[1]
+          << "," << tile_ij[2] << "," << tile_ij[3] << "] occurs at " << ord_ij <<std::endl;
           TA::TensorD K_ij = K.find(ord_ij);
           auto ext = K_ij.range().extent_data();
           Eigen::MatrixXd K_ij_mat = TA::eigen_map(K_ij, ext[0]*ext[1], ext[2]*ext[3]);
           K_vec[i*nocc_act + j] = K_ij_mat;
-          //ExEnv::out0() << "Hello, World!" << std::endl;
-          //ExEnv::out0() << "T^" << i << "," << j << ":\n" << T_ij_mat << std::endl;
         }
       }
 
@@ -161,8 +164,10 @@ class PNO : public LCAOWfn, public Provides<Energy> {
           es.compute(D_ij);
           Eigen::VectorXd occ = es.eigenvalues();
           Eigen::MatrixXd pnos = es.eigenvectors();
-          Eigen::VectorXd occ_keep;
-          Eigen::MatrixXd pnos_keep;
+          Eigen::VectorXd occ_keep(occ.size());
+          Eigen::MatrixXd pnos_keep(pnos.rows(),pnos.cols());
+          //Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, 0, nocc_act, 1> occ_keep;
+          //Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, 0, nocc_act, nocc_act> pnos_keep;
           int idx=0;
           for (int k=0; k<occ.size(); ++k) {
             if (occ[k] > threshold) {
@@ -175,9 +180,11 @@ class PNO : public LCAOWfn, public Provides<Energy> {
           }
           occ_vec[i*nocc_act + j] = occ_keep;
           pno_vec[i*nocc_act + j] = pnos_keep;
-          
+          ExEnv::out0() << "For (" << i << "," << j << ") there are " << idx
+          << " PNOs with occupation numbers greater than " << threshold << std::endl;
         }
       }
+      return 0;
     } 
 
 
